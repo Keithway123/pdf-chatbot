@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 import tempfile
 import os
+from app.store import  save_pdf,list_pdfs
 
 from app.reader import extract_text_from_pdf
 
@@ -29,8 +30,14 @@ async def upload_pdf(file: UploadFile = File(...)):
     finally:
         os.unlink(tmp_path)  # 用完删掉暂存文件
 
+    save_pdf(file.filename, pages)
+
     return {
         "filename": file.filename,
         "total_pages": len(pages),
         "pages": pages
     }
+
+@app.get("/pdfs")
+async def list_uploaded_pdfs():
+    return {"pdfs": list_pdfs()}
