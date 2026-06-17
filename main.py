@@ -1,16 +1,36 @@
-# 这是一个示例 Python 脚本。
+from fastapi import FastAPI, UploadFile, File, HTTPException
+import tempfile
+import os
 
-# 按 Shift+F10 执行或将其替换为您的代码。
-# 按 双击 Shift 在所有地方搜索类、文件、工具窗口、操作和设置。
+from app.reader import extract_text_from_pdf
 
-
-def print_hi(name):
-    # 在下面的代码行中使用断点来调试脚本。
-    print(f'Hi, {name}')  # 按 Ctrl+F8 切换断点。
+app = FastAPI(title="PDF Chatbot API", version="0.1.0")
 
 
-# 按装订区域中的绿色按钮以运行脚本。
-if __name__ == '__main__':
-    print_hi('PyCharm')
+@app.get("/")
+async def root():
+    return {"message": "PDF Chatbot API 运行中"}
 
-# 访问 https://www.jetbrains.com/help/pycharm/ 获取 PyCharm 帮助
+
+@app.post("/upload")
+async def upload_pdf(file: UploadFile = File(...)):
+    # 检查是否为 PDF
+    if not file.filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="只接受 PDF 文件")
+
+    # 把上传的文件暂存到本地，再交给 reader 处理
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        pages = extract_text_from_pdf(tmp_path)
+    finally:
+        os.unlink(tmp_path)  # 用完删掉暂存文件
+
+    return {
+        "filename": file.filename,
+        "total_pages": len(pages),
+        "pages": pages
+    }
