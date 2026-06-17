@@ -1,0 +1,16 @@
+# 环境变量（绝对不能进 git）
+.env
+
+# Python 虚拟环境
+.venv/
+
+# Python 编译缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# PyCharm
+.idea/
+
+# 测试用的 PDF（不想上传的话）
+*.pdf
