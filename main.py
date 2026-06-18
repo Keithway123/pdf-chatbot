@@ -16,6 +16,9 @@ from app.store import save_pdf, get_pdf, list_pdfs,get_history,append_history,cl
 from fastapi.responses import JSONResponse
 from fastapi.requests import Request
 
+from fastapi.responses import StreamingResponse
+import json
+
 class AskRequest(BaseModel):
     filename: str
     question: str
@@ -137,3 +140,53 @@ async def global_exception_handle(request: Request, exc: Exception):
             "detail": str(exc)
         }
     )
+
+
+@app.post("/ask/stream")
+async def ask_stream(request: AskRequest):
+    if get_pdf(request.filename) is None:
+        raise HTTPException(status_code=404, detail="找不到这个 PDF，请先上传")
+
+    history = get_history(request.session_id)
+
+    recent_context = ""
+    if history:
+        last_messages = history[-2:] if len(history) >= 2 else history
+        recent_context = " ".join([m["content"] for m in last_messages])
+
+    search_query = f"{recent_context} {request.question}".strip()
+    relevant_chunks = search_pdf(request.filename, search_query)
+    context = "\n\n".join(relevant_chunks)
+
+    messages = [
+        {
+            "role": "system",
+            "content": f"你是一个文件问答助手，只根据提供的内容回答问题。\n\n文件内容：\n{context}"
+        }
+    ]
+    messages.extend(history)
+    messages.append({"role": "user", "content": request.question})
+
+    # 这里需要你写：
+    # 1. 定义一个 generator 函数 generate()
+    # 2. 呼叫 LLM 时加上 stream=True
+    # 3. 每收到一个 chunk 就 yield 出去
+    # 4. 最后 yield "[DONE]"
+    # 5. 用 StreamingResponse 返回
+
+    async def generate():
+        stream = llm_client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=messages,
+            stream=True
+        )
+
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            text = chunk.choices[0].delta.content
+            if text:
+                yield f"data:{text}\n\n"
+        yield "data:[DONE]\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
