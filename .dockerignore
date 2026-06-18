@@ -1,0 +1,11 @@
+.venv/
+
+.env
+
+.git/
+
+__pycache__/
+
+chroma_db/
+
+*.pdf
