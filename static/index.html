@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Chatbot</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; }
+        h1 { color: #333; }
+        .section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
+        input[type="file"] { margin: 10px 0; }
+        input[type="text"] { width: 70%; padding: 8px; font-size: 14px; }
+        button { padding: 8px 16px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #45a049; }
+        #answer { margin-top: 20px; padding: 16px; background: #f9f9f9; border-radius: 8px; min-height: 60px; line-height: 1.8; white-space: pre-wrap; }
+        #status { color: #888; font-size: 13px; margin: 8px 0; }
+        #pdf-list { color: #555; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <h1>📄 PDF Chatbot</h1>
+
+    <div class="section">
+        <h3>第一步：上传 PDF</h3>
+        <input type="file" id="pdf-file" accept=".pdf">
+        <button onclick="uploadPDF()">上传</button>
+        <div id="status"></div>
+        <div id="pdf-list"></div>
+    </div>
+
+    <div class="section">
+        <h3>第二步：问问题</h3>
+        <input type="text" id="question" placeholder="输入你的问题..." onkeydown="if(event.key==='Enter') askQuestion()">
+        <button onclick="askQuestion()">发送</button>
+        <div id="answer"></div>
+    </div>
+
+    <script>
+        let currentFile = "";
+        const sessionId = "session_" + Date.now();
+
+        async function uploadPDF() {
+            const file = document.getElementById("pdf-file").files[0];
+            if (!file) { alert("请先选择 PDF 文件"); return; }
+
+            const status = document.getElementById("status");
+            status.textContent = "上传中...";
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            const res = await fetch("/upload", { method: "POST", body: formData });
+            const data = await res.json();
+
+            if (res.ok) {
+                currentFile = data.filename;
+                status.textContent = `✅ 上传成功：${data.filename}，共 ${data.total_pages} 页，${data.chunk_count} 个段落`;
+            } else {
+                status.textContent = `❌ 上传失败：${data.detail}`;
+            }
+        }
+
+        async function askQuestion() {
+            if (!currentFile) { alert("请先上传 PDF"); return; }
+
+            const question = document.getElementById("question").value.trim();
+            if (!question) return;
+
+            const answerDiv = document.getElementById("answer");
+            answerDiv.textContent = "";
+
+            const res = await fetch("/ask/stream", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    filename: currentFile,
+                    question: question,
+                    session_id: sessionId
+                })
+            });
+
+            // 读取流式响应
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const text = decoder.decode(value);
+                const lines = text.split("\n");
+
+                for (const line of lines) {
+                    if (line.startsWith("data:")) {
+                        const content = line.slice(5).trim();
+                        if (content === "[DONE]") break;
+                        answerDiv.textContent += content;
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

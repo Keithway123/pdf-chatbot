@@ -19,6 +19,8 @@ from fastapi.requests import Request
 from fastapi.responses import StreamingResponse
 import json
 
+from fastapi.staticfiles import  StaticFiles
+
 class AskRequest(BaseModel):
     filename: str
     question: str
@@ -27,6 +29,8 @@ class AskRequest(BaseModel):
 load_dotenv()
 
 app = FastAPI(title="PDF Chatbot API", version="0.2.0")
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # 初始化 LLM 客户端
 llm_client = OpenAI(
