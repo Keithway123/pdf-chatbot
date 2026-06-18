@@ -3,10 +3,19 @@ import tempfile
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from openai import OpenAI
 from dotenv import load_dotenv
+from openai.resources.skills import content
 
 from app.reader import extract_text_from_pdf
 from app.store import save_pdf, get_pdf, list_pdfs
 from app.vector_store import index_pdf, search_pdf
+
+from pydantic import BaseModel
+from app.store import save_pdf, get_pdf, list_pdfs,get_history,append_history,clear_history
+
+class AskRequest(BaseModel):
+    filename: str
+    question: str
+    session_id: str ="default"
 
 load_dotenv()
 
@@ -59,37 +68,58 @@ async def list_uploaded_pdfs():
 
 
 @app.post("/ask")
-async def ask(filename: str, question: str):
+async def ask(request: AskRequest):
     # 检查 PDF 是否已上传
-    if get_pdf(filename) is None:
+    if get_pdf(request.filename) is None:
         raise HTTPException(status_code=404, detail="找不到这个 PDF，请先上传")
+    #1.取得历史对话
+    history=get_history(request.session_id)
+    # 2. 再用历史组合搜索查询
+    recent_context = ""
+    if history:
+        last_messages = history[-2:] if len(history) >= 2 else history
+        recent_context = " ".join([m["content"] for m in last_messages])
 
-    # 从向量数据库检索相关段落
-    relevant_chunks = search_pdf(filename, question)
+    search_query = f"{recent_context} {request.question}".strip()
 
-    # 把相关段落拼成 context
+    relevant_chunks = search_pdf(request.filename, search_query)
     context = "\n\n".join(relevant_chunks)
 
-    # 组合 prompt 传给 LLM
-    response = llm_client.chat.completions.create(
-        model=LLM_MODEL,
-        messages=[
-            {
-                "role": "system",
-                "content": "你是一个文件问答助手，只根据提供的内容回答问题，不要编造。"
-            },
-            {
-                "role": "user",
-                "content": f"以下是文件内容：\n{context}\n\n问题：{question}"
-            }
+
+    #组合完整messages
+    messages =[
+        {
+            "role":"system",
+            "content":f"你是一个文件问答助手，只根据提供的内容回答问题，不要编造。\n\n文件内容：\n{context}"
+        }
         ]
+    messages.extend(history)
+    messages.append(
+        {
+             "role":"user",
+            "content":request.question
+        }
     )
 
+    response = llm_client.chat.completions.create(
+        model=LLM_MODEL,
+        messages=messages
+    )
     answer = response.choices[0].message.content
 
+    #把这轮对话存入历史
+    append_history(request.session_id, "user", request.question)
+    append_history(request.session_id, "assistant", answer)
+
     return {
-        "filename": filename,
-        "question": question,
+        "filename": request.filename,
+        "question": request.question,
         "answer": answer,
-        "sources": relevant_chunks,
+        "session_id":request.session_id,
+        "source":relevant_chunks,
     }
+
+@app.delete("/session/{session_id}")
+async def clear_session(session_id:str):
+    clear_history(session_id)
+    return {"message":f"session {session_id} cleared"}
