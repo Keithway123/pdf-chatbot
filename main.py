@@ -12,6 +12,10 @@ from app.vector_store import index_pdf, search_pdf
 from pydantic import BaseModel
 from app.store import save_pdf, get_pdf, list_pdfs,get_history,append_history,clear_history
 
+#统一错误处理
+from fastapi.responses import JSONResponse
+from fastapi.requests import Request
+
 class AskRequest(BaseModel):
     filename: str
     question: str
@@ -123,3 +127,13 @@ async def ask(request: AskRequest):
 async def clear_session(session_id:str):
     clear_history(session_id)
     return {"message":f"session {session_id} cleared"}
+
+@app.exception_handler(Exception)
+async def global_exception_handle(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "服务器内部错误",
+            "detail": str(exc)
+        }
+    )
